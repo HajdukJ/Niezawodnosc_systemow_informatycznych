@@ -205,3 +205,20 @@ class BankSystem:
         konto_z.saldo -= kwota
         konto_z.dodaj_wpis("przelew_zewnetrzny", kwota)
         return wynik
+
+
+bank = BankSystem()
+bank.utworz_konto("1234567895", "Jan Kowalski", saldo_poczatkowe=1000)
+bank.utworz_konto("9876543215", "Anna Nowak")
+bank.wplac("1234567895", 500)
+bank.wyplac("1234567895", 200)
+bank.przelew("1234567895", "9876543215", 300)
+print(bank.konta["1234567895"].saldo) 
+print(bank.konta["9876543215"].saldo) 
+bank.nalicz_odsetki("1234567895", roczna_stopa_procentowa=4, miesiace=3)
+bank.przelew("1234567895", "9876543215", 800)
+bank.nalicz_odsetki("1234567895", roczna_stopa_procentowa=4, miesiace=3)      
+print(bank.konta["1234567895"].saldo) 
+bank.przelew("1234567895", "9876543215", 300)
+
+
