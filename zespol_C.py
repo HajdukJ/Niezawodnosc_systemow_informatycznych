@@ -11,6 +11,55 @@ import random
 
 LIMIT_DZIENNY_WYPLAT = Decimal("5000")
 
+# ===================== LOGGER AWARII =====================
+import functools
+import json
+
+LOG_PATH = "awarie.jsonl"
+LOGI = []                 # wszystkie wpisy w pamieci
+START = time.time()
+open(LOG_PATH, "w", encoding="utf-8").close()   # czyscimy plik przy starcie
+
+
+def loguj(funkcja):
+    """Dekorator: zapisuje KAZDE wywolanie metody (OK albo wyjatek)."""
+    @functools.wraps(funkcja)
+    def wrapper(*args, **kwargs):
+        t = time.time()
+        wpis = {
+            "nr": len(LOGI) + 1,
+            "timestamp": t,
+            "t_od_startu_s": round(t - START, 6),
+            "funkcja": funkcja.__name__,
+            "args": repr(args[1:]),        # bez 'self'
+            "kwargs": repr(kwargs),
+        }
+        try:
+            wynik = funkcja(*args, **kwargs)
+            wpis.update(status="OK", wynik=repr(wynik))
+            return wynik
+        except Exception as e:
+            wpis.update(status="WYJATEK", typ_bledu=type(e).__name__, komunikat=str(e))
+            raise
+        finally:
+            LOGI.append(wpis)
+            with open(LOG_PATH, "a", encoding="utf-8") as f:
+                f.write(json.dumps(wpis, ensure_ascii=False) + "\n")
+    return wrapper
+
+
+def wypisz_logi():
+    print("\n===== LOGI =====")
+    for w in LOGI:
+        if w["status"] == "OK":
+            print(f'#{w["nr"]:02d} t={w["t_od_startu_s"]:.6f}s OK       {w["funkcja"]}{w["args"]} -> {w["wynik"]}')
+        else:
+            print(f'#{w["nr"]:02d} t={w["t_od_startu_s"]:.6f}s WYJATEK  {w["funkcja"]}{w["args"]} -> {w["typ_bledu"]}: {w["komunikat"]}')
+    bledy = sum(1 for w in LOGI if w["status"] == "WYJATEK")
+    print(f"Razem wywolan: {len(LOGI)}, wyjatkow: {bledy}")
+# =========================================================
+
+
 
 class KontoNieIstnieje(Exception):
     """Wyjatek zglaszany, gdy operacja dotyczy nieistniejacego numeru konta."""
@@ -23,16 +72,6 @@ class ProcesorNiedostepny(Exception):
 
 
 class ZewnetrznyProcesor:
-    """
-    Symulacja zewnetrznego systemu rozliczeniowego (np. izby rozliczeniowej
-    miedzybankowej), przez ktory ida przelewy wychodzace poza system.
-
-    Zawodzi losowo z zadanym prawdopodobienstwem -- celowo, do cwiczen
-    z mechanizmami odpornosci (retry, circuit breaker, redundancja) w P5.
-    To NIE jest wstrzynieta usterka do znalezienia -- to jest swiadomie
-    "kruchy" punkt integracji, ktory zespoly maja wzmocnic.
-    """
-
     def __init__(self, prawdopodobienstwo_awarii=0.3, opoznienie_s=0.0, generator=None):
         self.prawdopodobienstwo_awarii = prawdopodobienstwo_awarii
         self.opoznienie_s = opoznienie_s
@@ -80,6 +119,7 @@ class BankSystem:
         suma_kontrolna = sum(cyfry[:9]) % 10
         return cyfry[9] == suma_kontrolna
 
+    @loguj
     def utworz_konto(self, numer, wlasciciel, saldo_poczatkowe=0):
         if not self._numer_poprawny(numer):
             raise ValueError("Nieprawidlowy numer konta")
@@ -94,10 +134,12 @@ class BankSystem:
             raise KontoNieIstnieje(f"Konto {numer} nie istnieje")
         return self.konta[numer]
 
+    @loguj
     def zablokuj_konto(self, numer):
         konto = self._pobierz_konto(numer)
         konto.status = "zablokowane"
 
+    @loguj
     def odblokuj_konto(self, numer):
         konto = self._pobierz_konto(numer)
         konto.status = "aktywne"
@@ -110,6 +152,7 @@ class BankSystem:
                 suma += kwota
         return suma
 
+    @loguj
     def wplac(self, numer, kwota):
         konto = self._pobierz_konto(numer)
         if not isinstance(kwota, (int, float, Decimal)):
@@ -121,6 +164,7 @@ class BankSystem:
         konto.dodaj_wpis("wplata", kwota)
         return konto.saldo
 
+    @loguj
     def wyplac(self, numer, kwota):
         konto = self._pobierz_konto(numer)
         if konto.status == "zablokowane":
@@ -136,6 +180,7 @@ class BankSystem:
         konto.dodaj_wpis("wyplata", kwota)
         return konto.saldo
 
+    @loguj
     def przelew(self, numer_z, numer_do, kwota):
         konto_z = self._pobierz_konto(numer_z)
         konto_do = self.konta[numer_do]
@@ -155,6 +200,7 @@ class BankSystem:
             konto_do.dodaj_wpis("przelew_przychodzacy", kwota)
         return konto_z.saldo
 
+    @loguj
     def nalicz_odsetki(self, numer, roczna_stopa_procentowa, miesiace):
         konto = self._pobierz_konto(numer)
         stopa_miesieczna = Decimal(str(roczna_stopa_procentowa)) / Decimal("12") / Decimal("100")
@@ -164,6 +210,7 @@ class BankSystem:
             konto.dodaj_wpis("odsetki", odsetki)
         return konto.saldo
 
+    @loguj
     def historia_w_okresie(self, numer, od, do):
         konto = self._pobierz_konto(numer)
         wynik = []
@@ -172,6 +219,7 @@ class BankSystem:
                 wynik.append((data_operacji, typ, kwota))
         return wynik
 
+    @loguj
     def wyciag_miesieczny(self, numer, rok, miesiac):
         konto = self._pobierz_konto(numer)
         wplaty = Decimal("0")
@@ -184,14 +232,8 @@ class BankSystem:
                     wyplaty += kwota
         return {"wplaty": wplaty, "wyplaty": wyplaty, "saldo_koncowe": konto.saldo}
 
+    @loguj
     def przelew_zewnetrzny(self, numer_z, numer_konta_docelowego_zewn, kwota, procesor=None):
-        """
-        Przelew na konto spoza systemu (np. do innego banku), realizowany
-        przez zewnetrzny procesor platnosci. Implementacja jest celowo
-        naiwna -- pojedyncza proba, bez ponawiania i bez zabezpieczen na
-        wypadek niedostepnosci procesora. Wzmocnienie tej metody (retry,
-        circuit breaker, redundancja) jest zadaniem na blok P5.
-        """
         konto_z = self._pobierz_konto(numer_z)
         if konto_z.status == "zablokowane":
             raise KontoZablokowane(f"Konto {numer_z} jest zablokowane")
@@ -207,18 +249,27 @@ class BankSystem:
         return wynik
 
 
-bank = BankSystem()
-bank.utworz_konto("1234567895", "Jan Kowalski", saldo_poczatkowe=1000)
-bank.utworz_konto("9876543215", "Anna Nowak")
-bank.wplac("1234567895", 500)
-bank.wyplac("1234567895", 200)
-bank.przelew("1234567895", "9876543215", 300)
-print(bank.konta["1234567895"].saldo) 
-print(bank.konta["9876543215"].saldo) 
-bank.nalicz_odsetki("1234567895", roczna_stopa_procentowa=4, miesiace=3)
-bank.przelew("1234567895", "9876543215", 800)
-bank.nalicz_odsetki("1234567895", roczna_stopa_procentowa=4, miesiace=3)      
-print(bank.konta["1234567895"].saldo) 
-bank.przelew("1234567895", "9876543215", 300)
+def _demo():
+    """Oryginalny skrypt demonstracyjny z konca pliku (przeniesiony z poziomu modulu,
+    zeby import sut nie wykonywal operacji i nie konczyl sie wyjatkiem)."""
+    global bank
+    bank = BankSystem()
+    bank.utworz_konto("1234567895", "Jan Kowalski", saldo_poczatkowe=1000)
+    bank.utworz_konto("9876543215", "Anna Nowak")
+    bank.wplac("1234567895", 500)
+    bank.wyplac("1234567895", 200)
+    bank.przelew("1234567895", "9876543215", 300)
+    print(bank.konta["1234567895"].saldo)
+    print(bank.konta["9876543215"].saldo)
+    bank.nalicz_odsetki("1234567895", roczna_stopa_procentowa=4, miesiace=3)
+    bank.przelew("1234567895", "9876543215", 800)
+    bank.nalicz_odsetki("1234567895", roczna_stopa_procentowa=4, miesiace=3)
+    print(bank.konta["1234567895"].saldo)
+    bank.przelew("1234567895", "9876543215", 300)
 
 
+if __name__ == "__main__":
+    try:
+        _demo()
+    finally:
+        wypisz_logi()
