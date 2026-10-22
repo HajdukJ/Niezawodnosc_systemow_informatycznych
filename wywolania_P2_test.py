@@ -2,7 +2,7 @@
 
 import pytest
 from decimal import Decimal
-from zespol_C import BankSystem, KontoNieIstnieje, KontoZablokowane
+from zespol_C import BankSystem, KontoNieIstnieje, KontoZablokowane, ZewnetrznyProcesor, ProcesorNiedostepny
 
 KONTO_A = "1234567895"
 KONTO_B = "9876543215"
@@ -114,3 +114,17 @@ def test_przelew_na_to_samo_konto(bank):
     saldo = bank.przelew(KONTO_A, KONTO_A, 100)
     assert saldo == saldo_przed
     assert bank.konta[KONTO_A].saldo == saldo_przed
+
+# ── P3 do zabijania mutantów ──────────────────────────────────
+
+# sprawdza że wynik nie jest None
+def test_przelew_zewnetrzny_zwraca_wynik(bank):
+    procesor = ZewnetrznyProcesor(prawdopodobienstwo_awarii=0.0)
+    wynik = bank.przelew_zewnetrzny(KONTO_A, "DE123", 100, procesor=procesor)
+    assert wynik["status"] == "zaksiegowano"
+
+# sprawdza że procesor rzuca wyjątek gdy zawsze pada
+def test_przelew_zewnetrzny_procesor_niedostepny(bank):
+    procesor = ZewnetrznyProcesor(prawdopodobienstwo_awarii=1.0)
+    with pytest.raises(ProcesorNiedostepny):
+        bank.przelew_zewnetrzny(KONTO_A, "DE123", 100, procesor=procesor)
