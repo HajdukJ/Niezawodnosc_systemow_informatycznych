@@ -19,7 +19,7 @@ def bank():
 
 def test_wplac_poprawna(bank):
     saldo = bank.wplac(KONTO_A, 200)
-    assert saldo == Decimal("1201")
+    assert saldo == Decimal("1200")
 
 def test_wplac_kwota_zero(bank):
     with pytest.raises(ValueError):
