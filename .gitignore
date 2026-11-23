@@ -1,13 +1,10 @@
 __pycache__/
 *.pyc
 *.pyo
-
 .coverage
 .coverage.*
 htmlcov/
 coverage/
-
 .pytest_cache/
-
+coverage-data/
 awarie.jsonl
-
